@@ -1,3 +1,5 @@
+pip install streamlit yfinance pandas
+
 import streamlit as st
 import yfinance as yf
 import pandas as pd
@@ -63,6 +65,4 @@ if st.sidebar.button("Run Simulation"):
         })
         st.line_chart(chart_data)
 
-streamlit
-yfinance
-pandas
+
