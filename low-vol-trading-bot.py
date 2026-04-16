@@ -22,8 +22,27 @@ if st.sidebar.button("Run Simulation"):
         tickers = [t.strip() for t in stock_universe.split(',')]
         
         # Download Data (including SPY for benchmark)
+       # 1. Download Data with error handling
         all_tickers = tickers + ['SPY']
-        data = yf.download(all_tickers, start=start_date, end=end_date)['Adj Close']
+        data = yf.download(all_tickers, start=start_date, end=end_date)
+        
+        # Check if data is empty (e.g., if dates are on a weekend or invalid)
+        if data.empty:
+            st.error("No data found for these dates or tickers. Please try a different date range.")
+            st.stop()
+
+        # 2. Safely get the 'Adj Close' or 'Close' column
+        if 'Adj Close' in data.columns:
+            data = data['Adj Close']
+        elif 'Close' in data.columns:
+            data = data['Close']
+        else:
+            st.error("Could not find price data in the download. Try updating your ticker list.")
+            st.stop()
+        
+        # 3. Proceed with the rest of your logic
+        spy_data = data['SPY']
+        universe_data = data[tickers]
         
         # Separate benchmark and universe
         spy_data = data['SPY']
