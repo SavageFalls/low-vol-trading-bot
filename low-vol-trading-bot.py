@@ -1,86 +1,55 @@
-#import
-import streamlit as st
-import yfinance as yf
+from __future__ import annotations
+
+import glob
+import json
+from pathlib import Path
+
 import pandas as pd
-import datetime
+import streamlit as st
 
-# --- UI Setup ---
-st.set_page_config(page_title="Low-Vol Trading Bot", layout="wide")
-st.title("🛡️ Low-Volatility Anomaly Trading Bot")
-st.markdown("Select your dates below to simulate the strategy's performance.")
+REPORTS_DIR = Path("reports")
 
-# --- Interactive Sidebar Controls ---
-st.sidebar.header("Bot Parameters")
-start_date = st.sidebar.date_input("Start Date", datetime.date(2023, 11, 1))
-end_date = st.sidebar.date_input("End Date", datetime.date(2024, 2, 1))
-stock_universe = st.sidebar.text_input("Stock Universe (Comma separated)", "AAPL, MSFT, JNJ, PG, XOM, JPM, UNH, V, HD, KO, PEP, MRK, COST, MCD, WMT, TSLA, NVDA")
-top_percent = st.sidebar.slider("Select Top % of Lowest Volatility", min_value=10, max_value=50, value=30, step=5)
+st.set_page_config(page_title="Daily Hedge Fund Briefing", layout="wide")
+st.title("📈 AI Research Analyst Dashboard")
+st.caption("Institutional-format autonomous daily briefing viewer.")
 
-# --- Core Logic ---
-if st.sidebar.button("Run Simulation"):
-    with st.spinner("Fetching data and running simulation..."):
-        tickers = [t.strip() for t in stock_universe.split(',')]
-        
-        # Download Data (including SPY for benchmark)
-       # 1. Download Data with error handling
-        all_tickers = tickers + ['SPY']
-        data = yf.download(all_tickers, start=start_date, end=end_date)
-        
-        # Check if data is empty (e.g., if dates are on a weekend or invalid)
-        if data.empty:
-            st.error("No data found for these dates or tickers. Please try a different date range.")
-            st.stop()
+report_files = sorted(glob.glob(str(REPORTS_DIR / "daily_report_*.json")), reverse=True)
+if not report_files:
+    st.warning("No reports yet. Run `python main.py run-once` or `python -m app.scheduler` first.")
+    st.stop()
 
-        # 2. Safely get the 'Adj Close' or 'Close' column
-        if 'Adj Close' in data.columns:
-            data = data['Adj Close']
-        elif 'Close' in data.columns:
-            data = data['Close']
-        else:
-            st.error("Could not find price data in the download. Try updating your ticker list.")
-            st.stop()
-        
-        # 3. Proceed with the rest of your logic
-        spy_data = data['SPY']
-        universe_data = data[tickers]
-        
-        # Separate benchmark and universe
-        spy_data = data['SPY']
-        universe_data = data[tickers]
-        
-        # Calculate daily returns and rolling 30-day volatility
-        daily_returns = universe_data.pct_change()
-        rolling_vol = daily_returns.rolling(window=30).std()
-        
-        # Find the last day of the first month to make our selection
-        # (Simplified single-period selection for the UI demonstration)
-        selection_date = rolling_vol.dropna().index[0] 
-        vol_on_selection = rolling_vol.loc[selection_date]
-        
-        # Select lowest volatility stocks
-        num_stocks = max(1, int(len(tickers) * (top_percent / 100.0)))
-        selected_stocks = vol_on_selection.nsmallest(num_stocks).index.tolist()
-        
-        # Calculate Returns from selection date to end date
-        portfolio_returns = daily_returns.loc[selection_date:][selected_stocks].mean(axis=1)
-        cumulative_portfolio = (1 + portfolio_returns).cumprod() - 1
-        
-        spy_returns = spy_data.pct_change().loc[selection_date:]
-        cumulative_spy = (1 + spy_returns).cumprod() - 1
+selected = st.selectbox("Select report", report_files)
+with open(selected, "r", encoding="utf-8") as f:
+    report = json.load(f)
 
-        # --- Display Interactive Results ---
-        st.subheader(f"Portfolio Selected on {selection_date.strftime('%Y-%m-%d')}")
-        st.write(f"**Selected Tickers:** {', '.join(selected_stocks)}")
-        
-        col1, col2 = st.columns(2)
-        col1.metric("Bot Portfolio Return", f"{cumulative_portfolio.iloc[-1] * 100:.2f}%")
-        col2.metric("S&P 500 (SPY) Return", f"{cumulative_spy.iloc[-1] * 100:.2f}%")
-        
-        st.subheader("Performance Chart")
-        chart_data = pd.DataFrame({
-            'Low-Vol Bot': cumulative_portfolio * 100,
-            'S&P 500 Benchmark': cumulative_spy * 100
-        })
-        st.line_chart(chart_data)
+st.subheader("Macro Regime")
+st.write(f"Regime: **{report.get('macro_regime', 'unknown')}**")
+st.write(f"Confidence: **{report.get('macro_confidence', 0):.2f}**")
+st.write(report.get("macro_explanation", "No macro commentary."))
 
+rows = []
+for opp in report.get("opportunities", []):
+    rows.append(
+        {
+            "Ticker": opp["ticker"],
+            "Rating": opp["rating"],
+            "Confidence": round(opp["confidence"], 3),
+            "Composite": round(opp["composite_score"], 3),
+        }
+    )
 
+df = pd.DataFrame(rows)
+if df.empty:
+    st.info("No high-conviction ideas in this report.")
+else:
+    st.dataframe(df, use_container_width=True)
+
+for opp in report.get("opportunities", []):
+    with st.expander(f"{opp['ticker']} — {opp['rating']}"):
+        st.markdown(f"**Macro View:** {opp['macro_view']}")
+        st.markdown(f"**Positioning & Flows:** {opp['positioning_flows']}")
+        st.markdown(f"**Sentiment:** {opp['sentiment']}")
+        st.markdown(f"**Fundamentals:** {opp['fundamentals']}")
+        st.markdown(f"**Technical Levels:** {opp['key_levels']}")
+        st.markdown(f"**Thesis:** {opp['thesis']}")
+        st.code(opp.get("decision_trace", ""))
